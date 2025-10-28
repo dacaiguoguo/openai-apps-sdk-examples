@@ -251,6 +251,14 @@ function createPizzazServer(): Server {
             type: "text",
             text: widget.responseText,
           },
+          {
+            type: "resource",
+            resource: {
+              uri: widget.templateUri,
+              mimeType: "text/html+skybridge",
+              text: widget.html,
+            },
+          },
         ],
         structuredContent: {
           pizzaTopping: args.pizzaTopping,
