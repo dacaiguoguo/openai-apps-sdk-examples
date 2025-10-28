@@ -94,7 +94,7 @@ pnpm start
 python -m venv .venv
 source .venv/bin/activate
 pip install -r pizzaz_server_python/requirements.txt
-uvicorn pizzaz_server_python.main:app --port 8000
+uvicorn pizzaz_server_python.main:app --port 8001
 ```
 
 ### Solar system Python server

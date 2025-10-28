@@ -9,6 +9,8 @@ handlers into an HTTP/SSE stack so you can run the server with uvicorn on port
 
 from __future__ import annotations
 
+import json
+import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import lru_cache
@@ -18,6 +20,13 @@ from typing import Any, Dict, List
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -231,8 +240,13 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
 
 
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
+    logger.info(f"========== Tool Call Request ==========")
+    logger.info(f"Tool name: {req.params.name}")
+    logger.info(f"Arguments: {req.params.arguments}")
+
     widget = WIDGETS_BY_ID.get(req.params.name)
     if widget is None:
+        logger.error(f"Unknown tool: {req.params.name}")
         return types.ServerResult(
             types.CallToolResult(
                 content=[
@@ -249,6 +263,7 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     try:
         payload = PizzaInput.model_validate(arguments)
     except ValidationError as exc:
+        logger.error(f"Validation error: {exc.errors()}")
         return types.ServerResult(
             types.CallToolResult(
                 content=[
@@ -262,7 +277,12 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
         )
 
     topping = payload.pizza_topping
+    logger.info(f"Processing topping: {topping}")
+
     widget_resource = _embedded_widget_resource(widget)
+    logger.info(f"Widget resource created: {widget.template_uri}")
+    logger.info(f"Widget HTML length: {len(widget.html)} characters")
+
     meta: Dict[str, Any] = {
         "openai.com/widget": widget_resource.model_dump(mode="json"),
         "openai/outputTemplate": widget.template_uri,
@@ -272,18 +292,40 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
         "openai/resultCanProduceWidget": True,
     }
 
-    return types.ServerResult(
+    result = types.ServerResult(
         types.CallToolResult(
             content=[
                 types.TextContent(
                     type="text",
                     text=widget.response_text,
-                )
+                ),
+                widget_resource,
             ],
             structuredContent={"pizzaTopping": topping},
             _meta=meta,
         )
     )
+
+    # 打印返回结果的详细信息
+    logger.info(f"========== Tool Call Response ==========")
+    logger.info(f"Response text: {widget.response_text}")
+    logger.info(f"Content items count: {len(result.root.content)}")
+    logger.info(f"Content types: {[c.type for c in result.root.content]}")
+    logger.info(f"Structured content: {result.root.structuredContent}")
+    logger.info(f"Meta keys: {list(meta.keys())}")
+
+    # 打印嵌入的 widget resource 详情
+    if len(result.root.content) > 1:
+        widget_content = result.root.content[1]
+        logger.info(f"Widget resource type: {widget_content.type}")
+        if hasattr(widget_content, 'resource'):
+            logger.info(f"Widget URI: {widget_content.resource.uri}")
+            logger.info(f"Widget mimeType: {widget_content.resource.mimeType}")
+            logger.info(f"Widget HTML preview: {widget_content.resource.text[:200]}...")
+
+    logger.info(f"=======================================")
+
+    return result
 
 
 mcp._mcp_server.request_handlers[types.CallToolRequest] = _call_tool_request
